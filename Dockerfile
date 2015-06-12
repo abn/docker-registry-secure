@@ -7,11 +7,16 @@ RUN dnf -y install https://github.com/abn/docker-registry-rpm/releases/download/
 ENV CONFIG /config
 ENV REGISTRY_HOST localhost
 ENV REGISTRY_PORT 5000
+ENV REGISTRY_CONFIG /etc/docker-registry.yml
+ENV REGISTRY_CERT /etc/nginx/ssl/docker-registry.crt
+ENV REGISTRY_KEY /etc/nginx/ssl/docker-registry.key
+ENV NGINX_CONFIG /etc/nginx/conf.d/00-docker-registry.conf
+ENV SERVER_NAME localhost
 
 RUN mkdir -p ${CONFIG}
 RUN mkdir -p /etc/nginx/ssl
 
-ADD ./assets/nginx.conf /etc/nginx/conf.d/default.conf
+ADD ./assets/nginx.conf ${NGINX_CONFIG}
 ADD ./assets/supervisord.conf /etc/supervisord.conf
 ADD ./assets/entrypoint /usr/bin/entrypoint
 
