@@ -5,32 +5,118 @@ function conditional_link() {
         && ln -sf $1 $2
 }
 
+function conditional_extract() {
+    SRC=$1
+    DST=${CONFIG}/${2-$(basename ${SRC})}
+    [[ -f ${SRC} ]] && [[ ! -e ${DST} ]] \
+        && cp -R ${SRC} ${DST}
+}
+
+function extract-config() {
+    conditional_extract /etc/nginx/.htpasswd
+    conditional_extract ${NGINX_CONFIG} nginx.conf
+    conditional_extract ${REGISTRY_CERT}
+    conditional_extract ${REGISTRY_KEY}
+    conditional_extract ${REGISTRY_CONFIG}
+}
+
 function run() {
     conditional_link ${CONFIG}/.htpasswd /etc/nginx/.htpasswd
-    conditional_link ${CONFIG}/docker-registry.crt /etc/nginx/ssl/docker-registry.crt
-    conditional_link ${CONFIG}/docker-registry.key /etc/nginx/ssl/docker-registry.key
-    conditional_link ${CONFIG}/docker-registry.yml /etc/docker-registry.yml
+    conditional_link ${CONFIG}/$(basename ${REGISTRY_CERT}) ${REGISTRY_CERT}
+    conditional_link ${CONFIG}/$(basename ${REGISTRY_KEY}) ${REGISTRY_KEY}
+    conditional_link ${CONFIG}/nginx.conf ${NGINX_CONFIG}
+    conditional_link ${CONFIG}/$(basename ${REGISTRY_CONFIG}) ${REGISTRY_CONFIG}
 
-    sed -i "s|{{REGISTRY_HOST}}|$REGISTRY_HOST|;s|{{REGISTRY_PORT}}|$REGISTRY_PORT|;s|{{SERVER_NAME}}|$SERVER_NAME|" /etc/nginx/conf.d/default.conf
+    sed -i "s|{{REGISTRY_HOST}}|$REGISTRY_HOST|;s|{{REGISTRY_PORT}}|$REGISTRY_PORT|;s|{{SERVER_NAME}}|$SERVER_NAME|" ${NGINX_CONFIG}
 
-    /usr/bin/supervisord -n
+    /usr/bin/supervisord -n -c /etc/supervisord.conf
+}
+
+function generate_cert() {
+    [[ ! -f $(basename ${REGISTRY_CERT}) ]] && cd ${CONFIG} && openssl req \
+        -new \
+        -newkey rsa:4096 \
+        -days 365 \
+        -nodes \
+        -x509 \
+        -subj "/C=${C-AU}/ST=${ST-Queensland}/L=${L-Brisbane}/O=${O-Void}/CN=${CN-${SERVER_NAME}}" \
+        -keyout $(basename ${REGISTRY_KEY}) \
+        -out $(basename ${REGISTRY_CERT}) $@
+}
+
+HTPASSWD_FILE=${CONFIG}/.htpasswd
+PASSWORD_FILE=${CONFIG}/.password
+
+function error() {
+    echo 1>&2 "[ERROR] Something went wrong; not continuing"
+    exit 1
+}
+
+function run_htpasswd() {
+    [[ ! -f ${HTPASSWD_FILE} ]] && OPTS="${OPTS} -c"
+    htpasswd ${OPTS/\w+//} ${HTPASSWD_FILE} $@
+}
+
+function setup() {
+    cd ${CONFIG}
+    
+    generate_cert || error
+
+    if [ -z "${PASSWORD}" ]; then
+        if [ ! -f ${PASSWORD_FILE} ]; then
+            openssl rand -base64 32 > ${PASSWORD_FILE} || error
+            echo "[INFO] PASSWORD=$(cat ${PASSWORD_FILE})"
+        fi
+        PASSWORD=$(cat ${PASSWORD_FILE})
+    fi
+
+    OPTS="${OPTS} -b"
+    run_htpasswd ${USERNAME-docker} ${PASSWORD} || error
+    extract-config || error
+
+    cd -
+}
+
+function usage() {
+    cat << EOF
+
+Usage:
+ $0 [<command>] [arguments]
+
+Commands:
+ gencert    Generate a self-signed certificate. Environment variables respected 
+            include: C=AU, ST=Queensland, L=Brisbane, O=Void,CN=\$SERVER_NAME
+
+ help       Display this message.
+ 
+ htpasswd   Run htpasswd command to set username/password. Expectes username and
+            password (if non-interactive) to be provided. Any additional options 
+            to use when generating/modifying ${HTPASSWD_FILE} can be specified 
+            using the OPT environment variable.
+
+ setup      Generate SSL cert and htpasswd; and extract all default confiuration
+            to ${CONFIG}. When generating htpasswd file the default user docker 
+            is used if USERNAME env var is not set; and a random password is 
+            generated and stored in ${PASSWORD_FILE} if PASSWORD env var is not 
+            set or ${PASSWORD_FILE} is not provided.
+
+ start      (DEFAULT) This command triggers a setup and starts the secure 
+            registry. The registry with configuration loaded from ${CONFIG}
+            where available or generates initial config before start.
+EOF
 }
 
 case "$1" in
-    cert)
-        shift && cd ${CONFIG} && openssl req \
-            -new \
-            -newkey rsa:4096 \
-            -days 365 \
-            -nodes \
-            -x509 \
-            -subj "/C=${C-AU}/ST=${ST-Queensland}/L=${L-Brisbane}/O=${O-Void}/CN=${CN-localhost}" \
-            -keyout docker-registry.key \
-            -out docker-registry.cert $@ ;;
+    gencert)
+        shift && generate_cert ;;
+    help)
+        usage ;;
     htpasswd)
-        shift && cd ${CONFIG} && htpasswd ${OPTS--c} .htpasswd $@ ;;
-    run|"")
-        run ;;
+        shift && run_htpasswd $@ ;;
+    setup)
+        shift && setup ;;
+    start|"")
+        shift && setup && run ;;
     *)
         echo 1>&2 "Invalid command" ;;
 esac
