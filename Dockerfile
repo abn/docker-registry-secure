@@ -11,7 +11,9 @@ ENV REGISTRY_CONFIG /etc/docker-registry.yml
 ENV REGISTRY_CERT /etc/nginx/ssl/docker-registry.crt
 ENV REGISTRY_KEY /etc/nginx/ssl/docker-registry.key
 ENV NGINX_CONFIG /etc/nginx/conf.d/00-docker-registry.conf
+ENV OPENSSL_CONFIG /openssl.cnf
 ENV SERVER_NAME localhost
+ENV SERVER_IP 127.0.0.1
 
 RUN mkdir -p ${CONFIG}
 RUN mkdir -p /etc/nginx/ssl
@@ -19,6 +21,7 @@ RUN mkdir -p /etc/nginx/ssl
 ADD ./assets/nginx.conf ${NGINX_CONFIG}
 ADD ./assets/supervisord.conf /etc/supervisord.conf
 ADD ./assets/entrypoint /usr/bin/entrypoint
+ADD ./assets/openssl.cnf ${OPENSSL_CONFIG}
 
 EXPOSE 443
 VOLUME ["${CONFIG}"]

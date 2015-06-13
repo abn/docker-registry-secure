@@ -1,47 +1,76 @@
 #!/usr/bin/env bash
 
 function conditional_link() {
-    [[ -f $1 ]] \
-        && ln -sf $1 $2
+    if [ -f $1 ]; then
+        ln -sf $1 $2
+    fi
+}
+
+function conditional_cp() {
+    if [ -f $1 ]; then
+        rm -rf $2
+        cp $1 $2
+    fi
 }
 
 function conditional_extract() {
     SRC=$1
     DST=${CONFIG}/${2-$(basename ${SRC})}
-    [[ -f ${SRC} ]] && [[ ! -e ${DST} ]] \
-        && cp -R ${SRC} ${DST}
+    if [ -f ${SRC} ] && [ ! -e ${DST} ]; then
+        cp -R ${SRC} ${DST}
+    fi
 }
 
 function extract-config() {
     conditional_extract /etc/nginx/.htpasswd
     conditional_extract ${NGINX_CONFIG} nginx.conf
+    conditional_extract ${OPENSSL_CONFIG}
     conditional_extract ${REGISTRY_CERT}
     conditional_extract ${REGISTRY_KEY}
     conditional_extract ${REGISTRY_CONFIG}
 }
 
+function pre_run() {
+    conditional_cp ${CONFIG}/.htpasswd /etc/nginx/.htpasswd
+    conditional_cp ${CONFIG}/$(basename ${REGISTRY_CERT}) ${REGISTRY_CERT}
+    conditional_cp ${CONFIG}/$(basename ${REGISTRY_KEY}) ${REGISTRY_KEY}
+    conditional_cp ${CONFIG}/nginx.conf ${NGINX_CONFIG}
+    conditional_cp ${CONFIG}/openssl.cnf ${OPENSSL_CONFIG}
+    conditional_cp ${CONFIG}/$(basename ${REGISTRY_CONFIG}) ${REGISTRY_CONFIG}
+
+    configure_nginx
+}
+
 function run() {
-    conditional_link ${CONFIG}/.htpasswd /etc/nginx/.htpasswd
-    conditional_link ${CONFIG}/$(basename ${REGISTRY_CERT}) ${REGISTRY_CERT}
-    conditional_link ${CONFIG}/$(basename ${REGISTRY_KEY}) ${REGISTRY_KEY}
-    conditional_link ${CONFIG}/nginx.conf ${NGINX_CONFIG}
-    conditional_link ${CONFIG}/$(basename ${REGISTRY_CONFIG}) ${REGISTRY_CONFIG}
-
-    sed -i "s|{{REGISTRY_HOST}}|$REGISTRY_HOST|;s|{{REGISTRY_PORT}}|$REGISTRY_PORT|;s|{{SERVER_NAME}}|$SERVER_NAME|" ${NGINX_CONFIG}
-
+    pre_run
     /usr/bin/supervisord -n -c /etc/supervisord.conf
 }
 
+function configure_nginx() {
+    sed -i "s|{{REGISTRY_HOST}}|$REGISTRY_HOST|;s|{{REGISTRY_PORT}}|$REGISTRY_PORT|;s|{{SERVER_NAME}}|$SERVER_NAME|" ${NGINX_CONFIG}
+}
+
+function configure_ssl() {
+    sed -i "s|{{SERVER_IP}}|${SERVER_IP}|;s|{{SERVER_NAME}}|${SERVER_NAME}|" ${OPENSSL_CONFIG}
+}
+
 function generate_cert() {
-    [[ ! -f $(basename ${REGISTRY_CERT}) ]] && cd ${CONFIG} && openssl req \
-        -new \
-        -newkey rsa:4096 \
-        -days 365 \
-        -nodes \
-        -x509 \
-        -subj "/C=${C-AU}/ST=${ST-Queensland}/L=${L-Brisbane}/O=${O-Void}/CN=${CN-${SERVER_NAME}}" \
-        -keyout $(basename ${REGISTRY_KEY}) \
-        -out $(basename ${REGISTRY_CERT}) $@
+    cd ${CONFIG}
+    if [ ! -f $(basename ${REGISTRY_CERT}) ] || [ ! -z "${FORCE}"] ; then
+        pre_run
+        configure_ssl
+        openssl req \
+            -new \
+            -newkey rsa:4096 \
+            -days 365 \
+            -nodes \
+            -x509 \
+            -subj "/C=${C-AU}/ST=${ST-Queensland}/L=${L-Brisbane}/O=${O-Void}/CN=${CN-${SERVER_NAME}}" \
+            -keyout $(basename ${REGISTRY_KEY}) \
+            -out $(basename ${REGISTRY_CERT}) \
+            -config ${OPENSSL_CONFIG} $@
+    fi
+    cd -
 }
 
 HTPASSWD_FILE=${CONFIG}/.htpasswd
@@ -59,7 +88,7 @@ function run_htpasswd() {
 
 function setup() {
     cd ${CONFIG}
-    
+
     generate_cert || error
 
     if [ -z "${PASSWORD}" ]; then
@@ -71,7 +100,11 @@ function setup() {
     fi
 
     OPTS="${OPTS} -b"
-    run_htpasswd ${USERNAME-docker} ${PASSWORD} || error
+    
+    if [ ! -f ${HTPASSWD_FILE} ]; then
+        run_htpasswd ${USERNAME-docker} ${PASSWORD} || error
+    fi
+
     extract-config || error
 
     cd -
@@ -86,6 +119,7 @@ Usage:
 Commands:
  gencert    Generate a self-signed certificate. Environment variables respected 
             include: C=AU, ST=Queensland, L=Brisbane, O=Void,CN=\$SERVER_NAME
+            NOTE: This will rewrite any pre-existing certificates.
 
  help       Display this message.
  
@@ -108,7 +142,7 @@ EOF
 
 case "$1" in
     gencert)
-        shift && generate_cert ;;
+        shift && export FORCE=1 && generate_cert ;;
     help)
         usage ;;
     htpasswd)

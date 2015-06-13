@@ -1,0 +1,23 @@
+###
+# Derrived from:
+# http://stoneyforest.net/~chris/blog/+000000HH
+# 
+# This is required since GOLANG does not like self-signed certs
+# without IP SANs.
+###
+
+[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_ca
+
+[req_distinguished_name]
+commonName = {{SERVER_NAME}}
+
+[v3_ca]
+subjectAltName = @alt_names
+
+[alt_names]
+IP.1 = {{SERVER_IP}}
+# IP.2 = 10.0.0.1
+# DNS.1 = example.com
+# DNS.2 = www.example.com
