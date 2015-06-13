@@ -33,8 +33,11 @@ gencert htpasswd setup: $(CONFIG_DIR)
 start-fg: $(CONFIG_DIR)
 	@docker run -it $(RUN_ARGS) -v $(CONFIG_DIR):/config $(IMAGE) start
 
-test-fg help:
-	@docker run -it $(RUN_ARGS) $(IMAGE) $@
+test-fg:
+	@docker run -it $(RUN_ARGS) $(IMAGE) start
+
+help:
+	@docker run -it $(RUN_ARGS) $(IMAGE) help
 
 test:
 	@docker run -d $(RUN_ARGS) $(IMAGE) start
