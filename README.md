@@ -145,14 +145,14 @@ For convinience a Makefile is also provided. It provides the following targets.
 ## Troubleshooting
 
 ### Using registry with self-signed SSL cert
-In order to use the registry with a self-signed cert, you have to restart the docker daemon with '--insecure-registry https://${SERVER}:443'. On a systemd based distro, this can be done by editing the '/etc/sysconfig/docker' file to containe the following line. This assumes you are using https://127.0.0.1:443 as the registry.
+In order to use the registry with a self-signed cert, you have to restart the docker daemon with '--insecure-registry ${SERVER}:443'. On a systemd based distro, this can be done by editing the '/etc/sysconfig/docker' file to containe the following line. This assumes you are using 127.0.0.1:443 as the registry.
 
 ```
-INSECURE_REGISTRY='--insecure-registry https://127.0.0.1:443'
+INSECURE_REGISTRY='--insecure-registry 127.0.0.1:443'
 ```
 Once the daemon is restarted, you can login using:
 ```sh
-docker login -u docker -p password -e email@example.org https://127.0.0.1:443
+docker login -u docker -p password -e email@example.org 127.0.0.1:443
 ```
 
 ## References
