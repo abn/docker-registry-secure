@@ -12,6 +12,7 @@ Usage:
 Commands:
  gencert    Generate a self-signed certificate. Environment variables respected
             include: C=AU, ST=Queensland, L=Brisbane, O=Void,CN=$SERVER_NAME
+            NOTE: This will rewrite any pre-existing certificates.
 
  help       Display this message.
 
@@ -31,6 +32,22 @@ Commands:
             where available or generates initial config before start.
 ```
 
+## Configuration files
+Once setup completes (this is done on first start too if not done explicitly), the `config` directory will containe the following files. These files can be modified or replaced as required, and it would get picked up on next start.
+
+| File | Description |
+| ------------- | ------------- |
+| nginx.conf | This configures nginx as a proxy for the docker registry. |
+| openssl.cnf | This is used for when generating a self-signed certificate using the `gencert` command. This is required as GO does not like these certificates without IP SANs specifided. Note the the `alt_names` section. |
+| docker-registry.yml | This is the configuration used by the docker registry itself. |
+| docker-registry.crt | SSL certificate used by nginx. See nginx.conf file. |
+| docker-registry.key | SSL certificate key used by nginx. |
+| .htpasswd | Default htpasswd file created with either generated or provided credentials. |
+| .password | Created if `PASSWORD` env var was not set and .htpasswd file is generated. If one is provide when setting up, this is used instead of generating a random password. |
+
+### Custom SSL certificates
+To use your own SSL certificate, you can replace the `docker-registry.{crt, key}` files.
+
 ## Quickstarts
 
 ### Start registry on localhost
@@ -41,7 +58,8 @@ mkdir $(pwd)/config && chcon -Rt svirt_sandbox_file_t $(pwd)/config
 
 # start registry (with username=docker and random password)
 # once started see $(pwd)/config/.password for registry password for username:docker
-docker run -d -v $(pwd)/config:/config -e SERVER_NAME=localhost -p 443:443 --name secure-registry
+# SERVER_IP is used as an IP SAN for gneerated self-signed certs
+docker run -d -v $(pwd)/config:/config -e SERVER_IP=127.0.0.1 -e SERVER_NAME=localhost -p 443:443 --name secure-registry
 ```
 
 To specify credentials; start container with `-e USERNAME=crazy -e PASSWORD=fool`.
@@ -123,6 +141,19 @@ For convinience a Makefile is also provided. It provides the following targets.
 | test-fg | Same as test but do not detach |
 | shell | Start a bash shell in the container |
 | $(pwd)/config | Create the configuration directory and apply `chcon` |
+
+## Troubleshooting
+
+### Using registry with self-signed SSL cert
+In order to use the registry with a self-signed cert, you have to restart the docker daemon with '--insecure-registry https://${SERVER}:443'. On a systemd based distro, this can be done by editing the '/etc/sysconfig/docker' file to containe the following line. This assumes you are using https://127.0.0.1:443 as the registry.
+
+```
+INSECURE_REGISTRY='--insecure-registry https://127.0.0.1:443'
+```
+Once the daemon is restarted, you can login using:
+```sh
+docker login -u docker -p password -e email@example.org https://127.0.0.1:443
+```
 
 ## References
 * http://container-solutions.com/2015/04/running-secured-docker-registry-2-0/
